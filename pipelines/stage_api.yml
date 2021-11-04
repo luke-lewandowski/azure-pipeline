@@ -1,0 +1,114 @@
+parameters:
+  - name: stageName
+    type: string
+
+  - name: displayName
+    type: string
+    default: "Deployment"
+
+  - name: projectId
+    type: string
+
+  - name: buildNumber
+    type: string
+
+  - name: environment
+    type: string
+
+  - name: artifactName
+    type: string
+
+  - name: dockerTag
+    type: string
+
+  - name: dockerContainerRegistry
+    type: string
+
+  - name: databaseUser
+    type: string
+
+  - name: databasePassword
+    type: string
+
+  - name: backendServiceGCP
+    type: string
+
+  - name: backendGCPBucketName
+    type: string
+
+  - name: dependsOn
+    type: object
+    default: []
+
+  - name: condition
+    type: string
+    default: "succeeded()"
+
+stages:
+  - stage: ${{ parameters.stageName }}
+    displayName: ${{ parameters.displayName }}
+    dependsOn: ${{ parameters.dependsOn }}
+    condition: ${{ parameters.condition }}
+    jobs:
+      - deployment: ApiBuild
+        displayName: Build & push to GCP CloudRun
+        timeoutInMinutes: 90
+        environment: ${{ parameters.environment }}
+
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                # - checkout: self
+                - task: DownloadPipelineArtifact@2
+                  displayName: "Download UI Artifact"
+                  inputs:
+                    artifactName: ${{ parameters.artifactName }}
+                    targetPath: $(Build.SourcesDirectory)
+
+                - template: docker-build.yml
+                  parameters:
+                    displayName: "Build and push"
+                    dockerTag: ${{ parameters.dockerTag }}
+                    containerRegistry: ${{ parameters.dockerContainerRegistry }}
+
+      - deployment: ApiDeploy
+        dependsOn: ApiBuild
+        displayName: Deploy to GCP CloudRun
+        timeoutInMinutes: 90
+        environment: ${{ parameters.environment }}
+
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: none
+                # - checkout: self
+                - task: DownloadPipelineArtifact@2
+                  displayName: "Download UI Artifact"
+                  inputs:
+                    artifactName: api
+                    targetPath: $(Build.SourcesDirectory)
+
+                - task: CmdLine@2
+                  displayName: "Creating extra config file"
+                  inputs:
+                    script: |
+                      export DATABASE_USER="${{ parameters.databaseUser }}"
+                      export DATABASE_PASSWORD="${{ parameters.databasePassword }}"
+
+                      cat <<- EOF > infrastructure/extravars.env
+                      build_number="${{ parameters.buildNumber }}"
+                      database_user="$DATABASE_USER"
+                      database_password="$DATABASE_PASSWORD"
+                      EOF
+
+                - template: terraform-deploy.yml
+                  parameters:
+                    displayName: "Deploy"
+                    workingDirectory: "$(System.DefaultWorkingDirectory)/infrastructure"
+                    backendServiceGCP: "${{ parameters.backendServiceGCP }}"
+                    backendGCPBucketName: "${{ parameters.backendGCPBucketName }}"
+                    variableFilePath: "${{ parameters.environment }}.tfvars"
+                    extraVariableFilePath: "extravars.env"

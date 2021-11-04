@@ -1,0 +1,75 @@
+parameters:
+  - name: displayName
+    type: string
+
+  - name: workingDirectory
+    type: string
+
+  - name: backendServiceGCP
+    type: string
+
+  - name: backendGCPBucketName
+    type: string
+
+  - name: variableFilePath
+    type: string
+
+  - name: extraVariableFilePath
+    type: string
+    default: ".env"
+
+steps:
+  - task: CmdLine@2
+    displayName: ${{ parameters.displayName }}
+    inputs:
+      workingDirectory: ${{ parameters.workingDirectory }}
+      script: |
+        echo "displayName: ${{ parameters.displayName }}"
+        echo "workingDirectory: ${{ parameters.workingDirectory }}"
+        echo "backendServiceGCP: ${{ parameters.backendServiceGCP }}"
+        echo "backendGCPBucketName: ${{ parameters.backendGCPBucketName }}"
+        echo "variableFilePath: ${{ parameters.variableFilePath }}"
+        echo "extraVariableFilePath (optional): ${{ parameters.extraVariableFilePath }}"
+
+        if [ -f "${{ parameters.extraVariableFilePath }}" ]; then
+          echo "Extra variables being merged in: "
+          cat "${{ parameters.extraVariableFilePath }}"
+
+          echo "Combining variable files. (${{ parameters.extraVariableFilePath }} with ${{ parameters.extraVariableFilePath }})"
+          cat "${{ parameters.extraVariableFilePath }}" >> "${{ parameters.variableFilePath }}"
+        fi
+
+        echo "Variables: "
+        cat "${{ parameters.variableFilePath }}"
+
+  - task: TerraformInstaller@0
+    displayName: install terraform
+    inputs:
+      terraformVersion: "1.0.7"
+
+  - task: TerraformTaskV1@0
+    displayName: "Terraform : init"
+    inputs:
+      provider: gcp
+      workingDirectory: ${{ parameters.workingDirectory }}
+      backendServiceGCP: ${{ parameters.backendServiceGCP }}
+      backendGCPBucketName: ${{ parameters.backendGCPBucketName }}
+      backendGCPPrefix: terraform/state
+
+  - task: TerraformTaskV1@0
+    displayName: "Terraform : plan"
+    inputs:
+      provider: gcp
+      command: plan
+      workingDirectory: ${{ parameters.workingDirectory }}
+      commandOptions: "-var-file=${{ parameters.variableFilePath }} -no-color"
+      environmentServiceNameGCP: ${{ parameters.backendServiceGCP }}
+
+  - task: TerraformTaskV1@0
+    displayName: "Terraform : validate & apply"
+    inputs:
+      provider: gcp
+      command: apply
+      workingDirectory: ${{ parameters.workingDirectory }}
+      commandOptions: "-var-file=${{ parameters.variableFilePath }} -no-color"
+      environmentServiceNameGCP: ${{ parameters.backendServiceGCP }}

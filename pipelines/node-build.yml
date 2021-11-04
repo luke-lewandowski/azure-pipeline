@@ -1,0 +1,48 @@
+parameters:
+  - name: displayName
+    type: string
+    default: "Building node application"
+
+  - name: nodeVersion
+    type: string
+    default: "16.x"
+
+  - name: cacheDir
+    type: string
+    default: ".cache"
+
+steps:
+  - task: CmdLine@2
+    displayName: ${{ parameters.displayName }}
+    inputs:
+      script: |
+        echo "${{ parameters.displayName }}"
+
+  - task: NodeTool@0
+    inputs:
+      versionSpec: ${{ parameters.nodeVersion }}
+    displayName: "Install Node.js"
+
+  - task: CmdLine@2
+    displayName: "NPM configuration"
+    inputs:
+      script: |
+        npm --version
+        node --version
+        npm config set cache "${{ parameters.cacheDir }}"
+        npm config ls -l
+
+  # - task: Cache@2
+  #   inputs:
+  #     key: '"npm"|"$(Agent.OS)"|package.json'
+  #     path: ${{ parameters.cacheDir }}
+  #   displayName: "Cache npm packages"
+
+  - task: Npm@1
+    displayName: "Install NPM packages"
+    inputs:
+      command: "install"
+
+  - script: |
+      npm run build
+    displayName: "Lint and Build"

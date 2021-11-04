@@ -1,0 +1,28 @@
+parameters:
+  - name: displayName
+    type: string
+    default: "Create a version file"
+
+  - name: packagePath
+    type: string
+    default: "./"
+
+  - name: fileDestination
+    type: string
+    default: "./version.json"
+
+steps:
+  - task: CmdLine@2
+    displayName: ${{ parameters.displayName}}
+    inputs:
+      script: |
+        PACKAGE_LOCATION="${{ parameters.packagePath }}package.json"
+        PACKAGE_NAME="$(node -p -e "require('$PACKAGE_LOCATION').name")"
+        PACKAGE_VERSION="$(node -p -e "require('$PACKAGE_LOCATION').version")"
+        cat <<- EOF > ${{ parameters.fileDestination }}
+          {
+            "package": "$PACKAGE_NAME",
+            "version": "$PACKAGE_VERSION",
+            "build": "$(Build.BuildNumber)"
+          }
+        EOF

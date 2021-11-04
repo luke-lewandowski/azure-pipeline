@@ -1,0 +1,121 @@
+trigger:
+  - master
+  - develop
+  - release/*
+
+pr:
+  autoCancel: true
+
+variables:
+  tag: "$(Build.BuildId)"
+  imageName: "insights"
+  accountNamePrefix: "parentaleq"
+  vmImage: "ubuntu-latest"
+  nodeVersion: "16.x"
+
+pool:
+  vmImage: $(vmImage)
+
+stages:
+  - stage: Build
+    displayName: Building & Testing
+    jobs:
+      - job: Build
+        displayName: Build & Test
+        steps:
+          - template: pipelines/node-build.yml
+            parameters:
+              displayName: "Build & Test"
+              nodeVersion: ${{ variables.nodeVersion }}
+
+          - template: pipelines/create-version-file.yml
+            parameters:
+              displayName: "Create API version file"
+              packagePath: "./"
+              fileDestination: "./version.json"
+
+          - task: PublishPipelineArtifact@1
+            displayName: "Save UI artifact"
+            inputs:
+              targetPath: "dist"
+              artifactName: "artifact"
+
+  - template: pipelines/stage_api.yml
+    parameters:
+      stageName: "Dev_API"
+      displayName: "Dev API"
+      dependsOn: "Build"
+      projectId: "parentaleq-dev"
+      buildNumber: "$(tag)"
+      environment: "dev"
+      artifactName: "api"
+      dockerTag: "gcr.io/$(accountNamePrefix)-dev/$(imageName):$(tag)"
+      dockerContainerRegistry: "$(accountNamePrefix)-dev-gcr"
+      databaseUser: $(DEV_DATABASE_USER)
+      databasePassword: $(DEV_DATABASE_PASSWORD)
+      backendServiceGCP: "parentaleq-dev-terraform"
+      backendGCPBucketName: "parentaleq-dev-insightsapi-terraform-state"
+
+  - template: pipelines/stage_ui.yml
+    parameters:
+      stageName: "Dev_UI"
+      displayName: "Dev UI"
+      dependsOn: "Build"
+      projectId: "parentaleq-dev"
+      environment: "dev"
+      artifactName: "ui"
+      firebaseToken: $(DEV_FIREBASE_TOKEN)
+
+  - template: pipelines/stage_api.yml
+    parameters:
+      stageName: "Test_API"
+      displayName: "Test API"
+      dependsOn: "Dev_API"
+      projectId: "parentaleq-test"
+      buildNumber: "$(tag)"
+      environment: "test"
+      artifactName: "api"
+      dockerTag: "gcr.io/$(accountNamePrefix)-test/$(imageName):$(tag)"
+      dockerContainerRegistry: "$(accountNamePrefix)-test-gcr"
+      databaseUser: $(TEST_DATABASE_USER)
+      databasePassword: $(TEST_DATABASE_PASSWORD)
+      backendServiceGCP: "parentaleq-test-terraform"
+      backendGCPBucketName: "parentaleq-test-insightsapi-terraform-state"
+
+  - template: pipelines/stage_ui.yml
+    parameters:
+      stageName: "Test_UI"
+      displayName: "Test UI"
+      dependsOn: "Dev_UI"
+      projectId: "parentaleq-test"
+      environment: "test"
+      artifactName: "ui"
+      firebaseToken: $(TEST_FIREBASE_TOKEN)
+
+  - template: pipelines/stage_api.yml
+    parameters:
+      stageName: "Prod_API"
+      displayName: "Prod API"
+      dependsOn: "Test_API"
+      condition: "and(succeeded(), or(startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'), startsWith(variables['Build.SourceBranch'], 'refs/heads/master')))"
+      projectId: "parentaleq-prod"
+      buildNumber: "$(tag)"
+      environment: "prod"
+      artifactName: "api"
+      dockerTag: "gcr.io/$(accountNamePrefix)-prod/$(imageName):$(tag)"
+      dockerContainerRegistry: "$(accountNamePrefix)-prod-gcr"
+      databaseUser: $(PROD_DATABASE_USER)
+      databasePassword: $(PROD_DATABASE_PASSWORD)
+      backendServiceGCP: "parentaleq-prod-terraform"
+      backendGCPBucketName: "parentaleq-prod-insightsapi-terraform-state"
+
+  - template: pipelines/stage_ui.yml
+    parameters:
+      stageName: "Prod_UI"
+      displayName: "Prod UI"
+      dependsOn: "Test_UI"
+      condition: "and(succeeded(), or(startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'), startsWith(variables['Build.SourceBranch'], 'refs/heads/master')))"
+      projectId: "parentaleq-prod"
+      environment: "prod"
+      artifactName: "ui"
+      firebaseToken: $(PROD_FIREBASE_TOKEN)
